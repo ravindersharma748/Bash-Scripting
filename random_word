@@ -1,0 +1,4 @@
+#############
+###### stu=`cat students.txt | wc -l`
+###### One liner - number=$(shuf -i 1-$stu -n 1)
+######### cat students.txt | shuf -n 1 | awk -F',' -v n=$number '{print $n}'
