@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+
+# Script to generate comma separated values with index and a random number.
+# 0, 234
+# 1, 98
+# 2, 34
+
+#pass the count of numbers you want to genrate
+
+num=$1
+GenrateRandomNum() {
+
+for ((i=1;i<=$num;i++)); 
+do 
+   
+   echo "$i, ${RANDOM:0:3}" #Using RANDOM to genrate 3 digit random number
+
+done
+
+}
+
+
+
+FILE=outputFile
+
+# Check file exists
+
+if [ -f "${FILE}" ]; then
+    GenrateRandomNum > "${FILE}"
+else 
+    touch "${FILE}"                   # If file doesnot exist then create it
+    GenrateRandomNum > "${FILE}"
+fi
