@@ -15,16 +15,16 @@ e.g file name access.log shaould have a backup copy with name access.log_bkp
 
 #### Apache GET, POSTS rewrite rules
 
-RewriteEngine   on
-RewriteCond %{REQUEST_METHOD} ^GET$ [NC]
-RewriteRule ^(.*)$ https://abc.example.com$1 [R=301,L]
+  RewriteEngine   on
+  RewriteCond %{REQUEST_METHOD} ^GET$ [NC]
+  RewriteRule ^(.*)$ https://abc.example.com$1 [R=301,L]
 
 
 
-RewriteEngine   on
-RewriteCond %{REQUEST_METHOD} ^(GET|POST|PUT)$ [NC]
-RewriteCond %{REQUEST_URI} ^/tar/
-RewriteRule ^/tar/ https://abc.example.com/tar/ [R=301,L]
+   RewriteEngine   on
+   RewriteCond %{REQUEST_METHOD} ^(GET|POST|PUT)$ [NC]
+   RewriteCond %{REQUEST_URI} ^/tar/
+   RewriteRule ^/tar/ https://abc.example.com/tar/ [R=301,L]
 
 
 
