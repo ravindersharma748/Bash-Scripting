@@ -1,0 +1,287 @@
+The Linux boot process describes how a Linux machine starts up from the moment you turn it on until you get to the login screen. All we are trying to do is to hand over control of the hardware to the operating system. The main purpose for learning about the boot process is so that we can troubleshoot boot issues effectively.
+
+The BIOS
+Here’s what happens when you switch on a PC. There is this thing called the reset vector. The reset vector is a pointer or memory address , where the CPU should always begin as soon as it is able to execute instructions. The memory location pointed to by the reset vector contains a jump instruction to the memory address of where the BIOS is actually stored. The CPU will then jump to this memory address and start executing the BIOS. The BIOS is the first software that will run when a computer is turned on. It has two responsibilities,
+
+POST- Power On Self Test - checks the integrity of hardware like the Motherboard, CPU, RAM, Timer IC’s, Keyboard, Hard Drives, etc.
+Loads and executes the bootloader.
+When the PC starts up, the BIOS program does a POST check and then goes through each device listed in the boot order until it finds a bootable device. It will then load the bootloader from that bootable device and its job is done.
+
+The BIOS is “hardcoded” to look at the first sector of the bootable device and load it into memory. This first sector is called the Master Boot Record (MBR).
+
+The Master Boot Record
+NB: The term MBR is used to refer to the first sector (sector 0) of a bootable device.... Or it can be used to refer to a partitioning scheme.
+
+The MBR in this context refers to the first sector of a bootable device. It is a total of 512 bytes (the size of a sector) and is divided into three sections:
+
+How the MBR sector is divided.How the MBR sector is divided.
+
+The bootloader section where the code for the bootloader is stored
+The partition table section is where the MBR Partition table for that disk is stored.
+The boot signature is used to identify the storage device - the value is 0x55AA
+The way the MBR is divided means that your bootloader has to fit in the 446 bytes section of the MBR. In modern systems, this is not enough, so the bootloader is sometimes split into 2 or more parts or stages with the first stage being located in the MBR.
+
+Stage 1 of the bootloader will be responsible for loading the next stage of the bootloader which can be located somewhere else on the disk where it can occupy more space than the 446 bytes in the MBR.
+
+The Bootloader
+This is a program that is responsible for loading the operating system into memory. LILO (Linux Loader) was the default for a long time. The LILO bootloader basically points to the first sector where the kernel is stored on the disk. It had lots of limitations so it was soon replaced by GRUB (and now GRUB2)
+
+We will stick to Grub2 for this guide but Grub v1 still follows a similar process.
+
+Grub2
+Stage 1
+Also known as the primary bootloader, this is a 512 byte image (named “boot.img” ) that is located in the MBR. Its only task is to load **stage 1.5.**The Logical Block Address (LBA) of the first sector of stage 1.5 (core.img) is hardcoded into boot.img. When boot.img executes, it loads this first sector of core.img into memory and transfers control to it.In a typical Linux system, you can find boot.img is located at /boot/grub2/i386-pc/boot.img.
+
+Stage 1.5
+Stage 1.5 is an image (called “core.img”) that is located between sector 0 (the MBR) and sector
+63 where the first partition starts. You can find out why the first partition starts at sector 63 here. This gives core.img about 32 KiB of space to use and you can confirm its size by listing it as shown below:
+
+$ ls -lh /boot/grub2/i386-pc/*.img -rw-r--r-- 1 root root 512 Jun 11 08:42 /boot/grub2/i386-pc/boot.img -rw-r--r-- 1 root root 28K Jun 11 08:42 /boot/grub2/i386-pc/core.img
+
+The first sector of core.img (which is loaded into memory by
+boot.img) contains LBAs of the rest of the blocks that make up core.img and a loader that will load the rest of itself into memory. The grub kernel and filesystem modules that are needed to locate Stage 2 /boot/grub (which can be located anywhere) are loaded into RAM during stage 1.5. At this point, GRUB is already running and if anything goes wrong from now until we handover to the kernel, GRUB will drop to a GRUB rescue.
+
+Stage 2
+
+
+Stage 2 starts when /boot/grub2/grub.cfg is parsed and this is when the GRUB menu is displayed. Stage 2 will load the kernel image (identified by “/boot/vmlinuz-<kernel-version>”) along with the appropriate initramfs images (identified by “/boot/initramfs-<kernel-version>”) NB: GRUB supports chainloading which allows it to boot operating systems that are not directly supported by GRUB, like Windows. When you select a Windows OS, chainloading allows grub to load the Windows bootloader which then continues the boot process to load Windows.
+
+Initramfs and the Chicken-and-Egg problem
+The kernel needs to mount the root filesystem which can have one or more of the following properties:
+
+Can be on an NFS filesystem.
+Storage can be using a RAID configuration.
+May be using LVM.
+May be encrypted.
+The kernel is not compiled with the modules needed to mount a filesystem with any of the properties above. These modules, along with the rest of the modules used by the kernel, instead are stored under “/lib/modules” directory. However, in order for the kernel to access these modules, it needs to mount the root filesystem… this is the chicken and egg problem.
+
+Which came first? The chicken or the egg?Which came first? The chicken or the egg?
+
+The solution to this is to create a very small filesystem called initramfs. Initramfs has all the necessary drivers and modules that the kernel needs to mount the root filesystem. This filesystem is compressed into an archive which is extracted by the kernel into a temporary filesystem (tmpfs) that’s mounted in memory.
+
+The initramfs image is generated by a program called dracut.
+
+Initrd vs initramfs
+Both do the same thing but in slightly different ways.
+
+Initrd is a disk image which is made available as a special block device “/dev/ram”. This block device contains a filesystem that is mounted in memory. The drivers needed to mounted this filesystem, which for example could be ext3, must also be compiled into the kernel.
+
+Initramfs is an archive (which may or may not be compressed) that contains the files/directories you find in a typical Linux filesystem. This archive is extracted by the kernel into a tmpfs that in then mounted in memory… so no need to compile any filesystem drivers into the kernel as you would for initrd.
+
+Initrd was deprecated in favour of initramfs which was introduced in Linux kernel version 2.6.13.
+
+The Kernel
+When the kernel is loaded into memory by GRUB2, it first initializes and configures the computer's memory and configures the various hardware attached to the system, including all processors, I/O subsystems, and storage devices.
+
+The kernel then extracts initramfs into a tmpfs that’s mounted in memory and then uses this to mount the root filesystem as read-only (to protect it in case things don’t go well during the rest of the boot process).
+
+After mounting the root filesystem, the system manager is the first program/daemon to be executed and thus will have a PID of 1. In a SysV system, this daemon is called “init” and SystemD systems, this daemon is "systemd".
+
+5.1. SysV-Init
+For systems that uses SysV-Init, the kernel starts the first program called “init” which will have a PID of 1. Init is a daemon that runs throughout the lifetime of the system until it shuts down. The first thing the init daemon does is to execute the /etc/rc.d/rc.sysinit script. This script will do the following tasks (just to mention a few):
+
+Set the system’s hostname
+Unmount initramfs
+Sets kernel parameters as defined in /etc/sysctl.conf.
+Start devfs
+Mount procfs and sysfs
+Dumps the current contents of the kernel ring buffer into /var/log/dmesg
+Process /etc/fstab (mounting and running fsck)
+Enable RAID and LVM
+After the rc.sysinit script is executed, the runlevel scripts are executed and these scripts will start the necessary services according to the specified runlevel.
+
+Runlevels
+A runlevel describes the state of a system with regards to the services and functionality that is available. There are a total of 7 runlevel which are defined as follows:
+
+0: Halt or shutdown the system
+1: Single user mode
+2: Multi-user mode, without networking
+3: Full multi user mode, with networking
+4: Officially not defined; Unused
+5: Full multi user with NFS and graphics (typical for desktops)
+6: Reboot
+In most cases when running Linux servers on the cloud, you will be using them in runlevel 3. If you have a Linux machine with a graphical desktop installed, you will be using runlevel 5. When you reboot a system, you will be changing the runlevel to 6 and when you shut it down, you will be changing the runlevel to 0. Runlevel 1 (single user mode) is a very limited state with only the most essential services available and is used for maintenance purposes. For some reason they skipped 4 so runlevel 4 is not used for anything.
+
+The default runlevel of a system is defined in the config file /etc/inittab. If you open this file you will see a line similar to the following:
+
+id:3:initdefault:
+In this example, the default runlevel is 3. If you want to troll someone you can change that number to 0 or 6.
+
+Runlevel Scripts
+As mentioned earlier, a runlevel describes the state of the system with respect to the services and functionality available. These services are started by runlevel scripts and each runlevel has a set of scripts which are located under “/etc/rc.d” as shown below:
+
+$ ls -l /etc/rc.d
+total 60
+drwxr-xr-x 2 root root  4096 Aug 26 09:19 init.d
+-rwxr-xr-x 1 root root  2617 Aug 17  2017 rc
+drwxr-xr-x 2 root root  4096 Aug 26 09:19 rc0.d
+drwxr-xr-x 2 root root  4096 Aug 26 09:19 rc1.d
+drwxr-xr-x 2 root root  4096 Aug 26 09:19 rc2.d
+drwxr-xr-x 2 root root  4096 Aug 26 09:19 rc3.d
+drwxr-xr-x 2 root root  4096 Aug 26 09:19 rc4.d
+drwxr-xr-x 2 root root  4096 Aug 26 09:19 rc5.d
+drwxr-xr-x 2 root root  4096 Aug 26 09:19 rc6.d
+-rwxr-xr-x 1 root root   220 Jul  2 06:56 rc.local
+-rwxr-xr-x 1 root root 20108 Aug 17  2017 rc.sysinit
+Each one of the rc.d directories will have scripts that start with “K” or “S”. Scripts that start with “S” are the scripts that are executed when starting the services and ones that start with “K” are scripts that are used to stop/kill the service. After the “K” or “S” is a number which specifies the order in which the services will be started and this is how you define dependencies between services. For example, you will notice that the “network” Start script is set to start before the “ssh” service script since a system will need to have network access before the SSH service can start. Consequently, the network Kill script is set to execute AFTER the ssh service Kill script.
+
+After the runlevel scripts have been executed, the “/etc/rc.d/rc.local” script is executed. This is a script where you can add your own custom bash commands that you want to execute at boot. So if you are not familiar with how to create a background startup service using the runlevel scripts, you can just add your bash commands to start the service in this rc.local script.
+
+After the rc.local script has executed, the system will display the login prompt and done. That’s the boot process for sysv-init systems.
+
+5.2. SystemD
+SystemD is a system and service manager that was designed to replace SysV-Init which has the following limitations:
+
+Services are started sequentially even services that do not depend on each other.
+Longer boot times (most because of the point mentioned above)
+No easy and straightforward way to monitor running services.
+Dependencies have to be handled manually so you need very good knowledge of the dependencies involved when you want to modify the runlevel scripts to add a new service.
+Every resource that is managed by SystemD is called a unit. A unit (as defined in the man pages) is a plain-text file that stores information about any one of the following:
+
+a service
+a socket
+a device
+a mount point,
+an automount point
+a swap file or partition
+a start-up target
+a watched file system path
+a timer controlled and supervised by systemd
+a resource management slice or a group of externally created processes.
+The only two unit types we will focus on for this guide are “service” and “target” units but there is a very good article on SystemD units you can find on this DigitalOcean article by Justin Ellingwood. SysV-Init runlevels were replaced by systemd targets as follows:
+
+SysV-Init Runlevel	SystemD Start-up Target
+0: Halt or shutdown the system	poweroff.target
+1: Single User mode	rescue.target
+2: Multi-user mode, without networking	multi-user.target
+3: Full multi user mode, with Networking	multi-user.target
+4: Undefined	multi-user.target
+5: Full multi-user mode with networking and graphical desktop.	graphical.target
+6: Reboot	reboot.target
+Target files are used to group together units needed for that specific target. These units could be services, devices, sockets, etc and these units are defined as dependencies of that target. There are 3 main ways of defining the dependencies of a target and these are:
+
+“Wants=” statements inside the target unit files.
+“Requires=” statements inside the target unit files.
+Special “.wants” directories associated with each target unit file found under the directory /etc/systemd/system
+When a service has been configured to start at boot, a symbolic link will be created in the “.wants” directory of the corresponding target. For example, you can configure the apache2 service to start at boot using the following command:
+
+$ systemctl enable apache2
+
+Since the apache2 service has been configured to start at boot, it is now a dependency for the multi-user.target and as such, a symbolic link was created at:
+
+/etc/systemd/system/multi-user.target.wants/apache2.service
+
+When you boot a system into multi-user.target for example, all the unit files found under “/etc/systemd/system/multi-user.target.wants” will be started. Any services that do not depend on each other can start in parallel, making the boot process a bit faster. All the tasks that are handled by the rc.sysinit script in SysV-Init systems are defined as dependencies of the basic.target unit and you can list them using the following command:
+
+$ systemctl list-dependencies basic.target
+
+To check the default target of a system you can run the following command:
+
+$ systemctl get-default
+
+… and to set the default target you can run the following command (set it to graphical.target for example):
+
+$ systemctl set-default graphical.target
+
+If you are curious to know which parts of the start-up process are taking long, you can run the following command:
+
+$ systemd-analyze critical-chain 
+ graphical.target @17.569s
+ └─multi-user.target @17.569s
+   └─ce-agent.service @6.061s +6.039s
+     └─network-online.target @6.061s
+       └─cloud-init.service @4.239s +1.820s
+         └─network.service @3.570s +668ms
+           └─NetworkManager-wait-online.service @3.127s +442ms
+             └─NetworkManager.service @3.042s +84ms
+               └─network-pre.target @3.042s
+                 └─cloud-init-local.service @1.491s +1.550s
+                   └─basic.target @1.425s
+                     └─sockets.target @1.424s
+                       └─rpcbind.socket @1.424s
+                         └─sysinit.target @1.424s
+                           └─systemd-update-utmp.service @1.403s +21ms
+                             └─auditd.service @1.266s +136ms
+                               └─systemd-tmpfiles-setup.service @1.235s +29ms
+                                 └─systemd-journal-flush.service @426ms +808ms
+                                   └─systemd-remount-fs.service @271ms +149ms
+                                     └─systemd-fsck-root.service @584542y 2w 2d 20h 1min 48.791s +21ms
+                                       └─systemd-journald.socket
+                                         └─-.slice
+This is just about all you need to know about systemd with regards to the Linux boot process.
+
+Troubleshooting Tips for Boot Issues in EC2
+In order to troubleshoot boot issues effectively and in a timely manner, you need to have a good understanding of the different events that take place during the boot process and more importantly, at which point during the whole boot process that these events take place at. Troubleshooting boot issues starts off as a process of elimination where you look at the error messages and try to identify at which stage of the boot process that error could have originated from. If you do not do this first step correctly, you might end up spending hours/days working on the wrong thing.
+EC2 does not provide users with the ability to interact with the instance's virtual console, therefore, if your instance fails to boot, you have the following troubleshooting features available from EC2:* Instance's Screenshot - a screenshot of what the virtual console would look like if you were to be interacting with your virtual machine ( This is similar to the screen you get when you are using a virtual machine in VirtualBox ). When an instance boots successfully, ideally you should only see a login prompt on the screenshot with minor details of the system.
+
+Instance's System Log (Console Logs) - boot logs as you would see them on the virtual machine's console during boot.
+Instance Status Check - Also known as Instance Reachability Check. This check tests whether your instance's network interface is reachable using ARP ping (Level 2 network check) and this check will start passing once the networking service inside the instance's OS is running with correct network configurations. Sometimes bad network configurations can still allow this status check to pass but that's a special case.
+You will most likely need to use a recovery (aka rescue) instance running in the same Availability Zone in order to fix the boot issues. The process will involve detaching the root volume of your broken instance and then attaching it to the recovery instance as a secondary disk in order to troubleshoot the boot issues on the broken instance.
+MBR
+The MBR is what enables a disk to be identified as a bootable device and for systems that use MBR partitioning, the MBR is where the partition table it stored, therefore, any corruption to the MBR will lead to error messages like:
+
+No Bootable Devices Found
+
+Boot Device Not Found
+
+Invalid Partition Table
+
+Operating System not found
+
+Most errors pointing to an issue with the MBR, a bootable device, missing operating system or partitioning table
+
+Some disks use the GPT partitioning scheme which means that they technically do not need an MBR sector in order to work ( consider systems that do not use BIOS, like EFI). However, disks that use GPT will still need to have an MBR sector that only exists to allow stage 1 of the bootloader to be executed since the BIOS is "hardwired" to look at the first sector of a disk to load a bootloader (stage 1 of GRUB). You can use gdisk -l /dev/<block-device> to verify that a disk has an MBR. Here is the output on a Linux machine using GPT partitioning:
+
+$ gdisk -l /dev/nvme0n1
+GPT fdisk (gdisk) version 0.8.10
+Partition table scan:  MBR: protective  BSD: not present  APM: not present  GPT: present
+Found valid GPT with protective MBR; using GPT.
+Disk /dev/nvme0n1: 16777216 sectors, 8.0 GiBLogical sector size: 512 bytesDisk identifier (GUID): 66F46060-ED00-4D14-9841-F5CB6310A14APartition table holds up to 128 entriesFirst usable sector is 34, last usable sector is 16777182Partitions will be aligned on 2048-sector boundariesTotal free space is 2014 sectors (1007.0 KiB)Number  Start (sector)    End (sector)  Size       Code  Name   1            4096        16777182   8.0 GiB     8300  Linux 128            2048            4095   1024.0 KiB  EF02  BIOS Boot Partition
+There are also different types of hypervisors on EC2 which can affect how your boot volume should be configured. However, most instance types use an HVM hypervisor that requires an MBR sector on the boot volume.
+
+Here is an example case I have worked on regarding MBR - The customer was importing a system that used GPT partitioning but did not have an MBR sector - https://command-center.support.aws.a2z.com/case-console#/cases/6249977631 
+
+GRUB
+Grub starts running from the moment stage-1 starts executing and GRUB is in control of the system until the kernel is loaded into memory. If anything goes wrong during this time, the system will likely drop to a grub rescue prompt, therefore, if you see a grub rescue prompt in the screenshot or console logs, then examples of issues that can lead to this are:
+
+failed to load stage 1.5 or stage 2 of grub. This could be a result of a corrupted filesystem or bad grub configurations. Grub needs to access "/boot" and "/boot/grub2" where the kernel image, initramfs and grub configs are stored. Additional grub configurations also exists under "/etc/grub.d" and "/etc/default/grub"
+missing kernel image or initramfs. If there are multiple kernels then double-check the version specified in the grub configs and make sure that version exists under /boot.
+A typical grub prompt after a grub error
+Some GRUB issues can be resolved by making changes directly to the additional configurations (/etc/grub.d and /etc/default/grub). Some times you have to re-install grub itself, reinstalling the kernel or rebuilding initramfs based on the error messages you encounter.
+
+Kernel
+The kernel performs hardware checks, mounts the root filesystem using initramfs and ends off its section of the boot process by executing the first program init or systemd.
+
+the kernel failed to mount the root volume here
+
+If things go wrong during this stage, you will likely be dropped to an emergency shell where initramfs is your filesystem. Examples of issues you can come across are:
+
+Missing or corrupt hardware drivers. Resolving this may be as simple as installing the missing drivers but sometimes you may have to rebuild the kernel and update grub. Grub must be updated any time changes are made to the kernel.
+
+Failed to mount the root file system. The root filesystem is mounted twice during the boot process, first as read-only by the kernel and then again by init or systemd as read-write when /etc/fstab is processed. Make sure to check grub configuration to make sure the correct label for the root partition is specified. Grub config get it's information from /etc/fstab so make sure to also check that too.
+
+The kernel also performs filesystems checks and if they fail, the system can drop to an emergency shell.
+
+init and systemd
+The system manager (init or systemd) is responsible for the first set of tasks performed by the rc.sysinit script (or equivalent systemd units) and some key tasks involve mounting filesystems, filesystem checks, configuring RAID/LVM and it then starts the background services that run throughout the lifetime of the system. Some key services are OpenSSH, Networking, NTP, rsyslog, SELinux, etc. There are some services that will allow the system to continue booting if they fail to start, but some issues will cause the system to change to Runlevel 1 (single user mode with minimal functionality) and for systemd it will change to rescue.target (Rescue mode) or emergency.target (Emergency mode).
+
+Emergency mode after failing to locate a partition/block device
+Most issues encountered at this stage are resolved through a recovery instance. Sometimes you may have to use "chroot" where you change the root filesystem of your recovery instance to use the root filesystem of the broken system. This allows you to perform certain tasks as if you were logged into the broken system itself (useful for installing packages, rebuilding the kernel/initramfs images, etc.). Here is a case I worked on where the system would boot with the root filesystem mounted as Read-Only - https://command-center.support.aws.a2z.com/case-console#/cases/5736248741 
+
+Sources, References and more reading:
+http://www.dolda2000.com/~fredrik/doc/grub2
+
+https://www.digitalocean.com/community/tutorials/understanding-systemd-units-and-unit-files
+
+https://www.dedoimedo.com/computers/grub-2.html
+
+https://wiki.gentoo.org/wiki/Sysvinit
+
+https://en.wikipedia.org/wiki/BIOS
+
+Related Items:
+link http://www.dolda2000.com/~fredrik/doc/grub2
+link https://www.digitalocean.com/community/tutorials/understanding-systemd-units-and-unit-files
+link https://www.dedoimedo.com/computers/grub-2.html
+link https://wiki.gentoo.org/wiki/Sysvinit
+link https://en.wikipedia.org/wiki/BIOS
