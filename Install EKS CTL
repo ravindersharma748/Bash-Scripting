@@ -1,0 +1,35 @@
+# Install EKS CTL
+
+1. Install AWS CLI
+   https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html
+
+2. Install Brew
+   https://brew.sh/
+
+3.  Create User in AWS account and assign administrative permissions
+
+4. aws configure
+
+5. Install EKSCTL
+   https://eksctl.io/introduction/#installation
+
+6. Create EKS Cluster
+   6.1 Create a yaml file
+
+apiVersion: eksctl.io/v1alpha5
+kind: ClusterConfig
+
+metadata:
+  name: eks-acg
+  region: us-east-2
+
+vpc:
+  cidr: 10.101.0.0/24
+
+nodeGroups:
+  - name: eks-node-group
+    instanceType: t2.micro
+    desiredCapacity: 3
+
+Run command:
+6.2 eksctl create cluster -f cluster.yaml
